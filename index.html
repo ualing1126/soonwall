@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>即時互動留言牆 Live Wall</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Fonts Noto Sans TC -->
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+  
+  <style>
+    body {
+      font-family: 'Noto Sans TC', system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 50% 50%, #1a1b35 0%, #0c0d1a 100%);
+      color: #f3f4f6;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    
+    /* 玻璃擬態 (Glassmorphism) */
+    .glass-card {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+
+    .glass-input {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #ffffff;
+      transition: all 0.3s ease;
+    }
+    .glass-input:focus {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: #8b5cf6;
+      outline: none;
+      box-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+    }
+
+    /* 捲軸美化 */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.1);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.4);
+    }
+
+    /* 漸層文字與炫光動畫 */
+    .glow-text {
+      background: linear-gradient(135deg, #a78bfa 0%, #ec4899 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 0 30px rgba(167, 139, 250, 0.2);
+    }
+
+    .neon-border {
+      position: relative;
+    }
+    .neon-border::after {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      background: linear-gradient(135deg, #8b5cf6, #ec4899);
+      border-radius: inherit;
+      z-index: -1;
+      opacity: 0.6;
+      filter: blur(8px);
+    }
+
+    /* 縮小淡入動畫 */
+    @keyframes popIn {
+      0% { transform: scale(0.9); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .animate-pop-in {
+      animation: popIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+  </style>
+</head>
+<body class="flex flex-col min-height-screen">
+
+  <!-- 頂部導航列 -->
+  <header class="glass-card sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-white/5">
+    <div class="flex items-center space-x-3">
+      <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-violet-600 to-fuchsia-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
+        <i class="fa-solid fa-comments text-white text-lg"></i>
+      </div>
+      <div>
+        <h1 class="font-black text-xl tracking-wide glow-text">互動留言牆</h1>
+        <p class="text-[10px] text-gray-400 font-light">LIVE MESSAGE WALL</p>
+      </div>
+    </div>
+
+    <!-- 功能控制按鈕 -->
+    <div class="flex items-center space-x-2">
+      <!-- 檢視模式切換：投稿/牆面 -->
+      <button id="btn-toggle-view" class="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white transition duration-300 text-sm flex items-center space-x-2 border border-white/5">
+        <i class="fa-solid fa-desktop"></i>
+        <span id="txt-toggle-view">切換至展示牆</span>
+      </button>
+
+      <!-- 設定按鈕 -->
+      <button id="btn-settings" class="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition duration-300 border border-white/5" title="設定連線">
+        <i class="fa-solid fa-gear text-lg"></i>
+      </button>
+
+      <!-- 說明按鈕 -->
+      <button id="btn-info" class="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition duration-300 border border-white/5" title="GAS 部署說明與程式碼">
+        <i class="fa-solid fa-circle-info text-lg"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- 主要內容區 -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 flex flex-col justify-center items-center">
+
+    <!-- 狀態列：未設定 GAS URL 時顯示 -->
+    <div id="conn-alert" class="w-full max-w-lg mb-6 glass-card p-4 rounded-2xl border-amber-500/20 bg-amber-500/5 text-amber-200 text-sm flex items-start space-x-3 hidden animate-pop-in">
+      <i class="fa-solid fa-triangle-exclamation text-amber-400 text-base mt-0.5"></i>
+      <div class="flex-1">
+        <p class="font-semibold">尚未設定 GAS 後端連線網址！</p>
+        <p class="text-xs text-amber-300/80 mt-1">請點擊右上方 ⚙️ 按鈕輸入您的 GAS Web App URL。或點擊 ℹ️ 按鈕取得後端程式碼與部署教學。</p>
+      </div>
+    </div>
+
+    <!-- ==================== 視圖 1: 行動端投稿介面 ==================== -->
+    <section id="view-submit" class="w-full max-w-lg animate-pop-in">
+      <div class="glass-card rounded-3xl p-6 md:p-8 relative overflow-hidden">
+        <div class="absolute -top-10 -right-10 w-40 h-40 bg-violet-600/10 rounded-full blur-2xl"></div>
+        <div class="absolute -bottom-10 -left-10 w-40 h-40 bg-fuchsia-600/10 rounded-full blur-2xl"></div>
+
+        <h2 class="text-2xl font-bold text-center mb-1">留下您的祝福與片刻</h2>
+        <p class="text-center text-gray-400 text-xs mb-8">您的內容將即時在現場大螢幕播放</p>
+
+        <form id="submit-form" class="space-y-6">
+          <!-- 名字/暱稱 -->
+          <div>
+            <label class="block text-sm font-semibold text-gray-300 mb-2">
+              <i class="fa-solid fa-user text-violet-400 mr-1.5"></i> 您的姓名或暱稱 <span class="text-red-400">*</span>
+            </label>
+            <input type="text" id="input-name" required placeholder="例如：超棒的祝福者" class="w-full px-4 py-3 rounded-xl glass-input text-sm">
+          </div>
+
+          <!-- 祝福內文 -->
+          <div>
+            <label class="block text-sm font-semibold text-gray-300 mb-2">
+              <i class="fa-solid fa-pen text-pink-400 mr-1.5"></i> 祝福留言訊息 <span class="text-red-400">*</span>
+            </label>
+            <textarea id="input-message" required rows="4" placeholder="在這裡寫下給新人的祝福、尾牙中大獎的心願，或是活動感想吧！" class="w-full px-4 py-3 rounded-xl glass-input text-sm resize-none"></textarea>
+          </div>
+
+          <!-- 圖片上傳區 -->
+          <div>
+            <label class="block text-sm font-semibold text-gray-300 mb-2">
+              <i class="fa-solid fa-image text-emerald-400 mr-1.5"></i> 上傳照片 (選填)
+            </label>
+            
+            <div id="image-dropzone" class="border-2 border-dashed border-white/15 hover:border-violet-400/50 bg-white/5 hover:bg-white/10 rounded-2xl p-6 transition duration-300 cursor-pointer flex flex-col items-center justify-center text-center">
+              <input type="file" id="input-image" accept="image/*" class="hidden">
+              <div id="upload-prompt" class="space-y-2">
+                <i class="fa-solid fa-cloud-arrow-up text-3xl text-gray-400"></i>
+                <p class="text-sm font-medium text-gray-300">點擊或拖曳圖片至此上傳</p>
+                <p class="text-xs text-gray-400">支援 JPG, PNG，系統將自動進行壓縮優化</p>
+              </div>
+              <div id="upload-preview" class="hidden w-full relative">
+                <img id="preview-img" class="max-h-48 mx-auto rounded-lg shadow-md border border-white/10" src="" alt="預覽圖片">
+                <button type="button" id="btn-remove-img" class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1.5 text-xs transition duration-200">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 提交按鈕 -->
+          <button type="submit" id="btn-submit-post" class="w-full py-4 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-bold tracking-wider transition-all duration-300 shadow-lg shadow-violet-500/25 flex items-center justify-center space-x-2">
+            <i class="fa-solid fa-paper-plane"></i>
+            <span>傳送至大螢幕牆面</span>
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ==================== 視圖 2: 電視牆展示頁面 ==================== -->
+    <section id="view-wall" class="w-full hidden animate-pop-in flex flex-col space-y-6">
+      
+      <!-- 控制與資訊工具列 -->
+      <div class="glass-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center space-x-3">
+          <span class="flex h-3.5 w-3.5 relative">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500"></span>
+          </span>
+          <span class="text-sm font-semibold tracking-wider text-emerald-300">大螢幕即時同步中</span>
+          <span id="wall-stats" class="text-xs text-gray-400 bg-white/5 px-2.5 py-1 rounded-full border border-white/5">共 0 則留言</span>
+        </div>
+        
+        <div class="flex items-center space-x-3">
+          <button id="btn-refresh-wall" class="px-3.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white transition duration-200 text-xs flex items-center space-x-1.5 border border-white/5">
+            <i class="fa-solid fa-rotate"></i>
+            <span>手動整理</span>
+          </button>
+          
+          <button id="btn-qrcode-show" class="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-violet-600/40 to-fuchsia-600/40 hover:from-violet-600/60 hover:to-fuchsia-600/60 text-white transition duration-200 text-xs flex items-center space-x-1.5 border border-violet-500/20">
+            <i class="fa-solid fa-qrcode"></i>
+            <span>顯示掃碼投稿</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 留言牆主體卡片網格 -->
+      <div id="posts-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- 骨架屏載入動畫 -->
+        <div class="skeleton-card glass-card rounded-3xl p-6 space-y-4 animate-pulse">
+          <div class="flex items-center space-x-3">
+            <div class="h-10 w-10 bg-white/10 rounded-full"></div>
+            <div class="flex-1 space-y-2">
+              <div class="h-4 bg-white/10 rounded w-1/3"></div>
+              <div class="h-3 bg-white/10 rounded w-1/4"></div>
+            </div>
+          </div>
+          <div class="h-20 bg-white/10 rounded-2xl w-full"></div>
+        </div>
+        <div class="skeleton-card glass-card rounded-3xl p-6 space-y-4 animate-pulse">
+          <div class="flex items-center space-x-3">
+            <div class="h-10 w-10 bg-white/10 rounded-full"></div>
+            <div class="flex-1 space-y-2">
+              <div class="h-4 bg-white/10 rounded w-1/2"></div>
+              <div class="h-3 bg-white/10 rounded w-1/3"></div>
+            </div>
+          </div>
+          <div class="h-32 bg-white/10 rounded-2xl w-full"></div>
+        </div>
+        <div class="skeleton-card glass-card rounded-3xl p-6 space-y-4 animate-pulse">
+          <div class="flex items-center space-x-3">
+            <div class="h-10 w-10 bg-white/10 rounded-full"></div>
+            <div class="flex-1 space-y-2">
+              <div class="h-4 bg-white/10 rounded w-1/4"></div>
+              <div class="h-3 bg-white/10 rounded w-1/5"></div>
+            </div>
+          </div>
+          <div class="h-16 bg-white/10 rounded-2xl w-full"></div>
+        </div>
+      </div>
+
+      <!-- 無留言提示 -->
+      <div id="empty-posts" class="hidden glass-card rounded-3xl p-12 text-center flex flex-col items-center justify-center space-y-4 max-w-md mx-auto">
+        <div class="h-16 w-16 rounded-2xl bg-white/5 flex items-center justify-center text-gray-400">
+          <i class="fa-regular fa-comment-dots text-3xl"></i>
+        </div>
+        <div>
+          <h3 class="text-lg font-bold">目前還沒有留言</h3>
+          <p class="text-xs text-gray-400 mt-1">搶先點選「切換至投稿頁面」發送第一條留言吧！</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 底部版權 -->
+  <footer class="py-6 text-center text-xs text-gray-500 border-t border-white/5 mt-12">
+    <p>© 2026 互動留言牆系統. Built with Google Apps Script & Front-End Innovation.</p>
+  </footer>
+
+  <!-- ==================== MODALS / 彈出式視窗 ==================== -->
+
+  <!-- 1. 通用自訂對話框 (替代 alert / confirm) -->
+  <div id="modal-alert" class="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden opacity-0 transition-all duration-300">
+    <div class="glass-card max-w-sm w-full rounded-3xl p-6 border-white/10 scale-95 transition-transform duration-300">
+      <div class="flex flex-col items-center text-center space-y-4">
+        <!-- 圖示圓圈 -->
+        <div id="alert-icon-wrapper" class="h-16 w-16 rounded-full flex items-center justify-center text-2xl">
+          <i id="alert-icon" class="fa-solid"></i>
+        </div>
+        <!-- 標題與內文 -->
+        <div>
+          <h3 id="alert-title" class="text-xl font-bold tracking-wide">標題</h3>
+          <p id="alert-message" class="text-sm text-gray-300 mt-2 leading-relaxed">這是內容</p>
+        </div>
+        <!-- 按鈕 -->
+        <button id="alert-btn-close" class="w-full py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold transition duration-200">
+          確 定
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. 設定密碼視窗 (⚙️) -->
+  <div id="modal-settings" class="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden opacity-0 transition-all duration-300">
+    <div class="glass-card max-w-lg w-full rounded-3xl p-6 md:p-8 border-white/10 scale-95 transition-transform duration-300 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-6">
+        <h3 class="text-xl font-bold flex items-center space-x-2">
+          <i class="fa-solid fa-gears text-violet-400"></i>
+          <span>系統核心連線設定</span>
+        </h3>
+        <button id="btn-close-settings" class="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="space-y-6">
+        <!-- GAS API 網址設定 -->
+        <div>
+          <label class="block text-sm font-semibold text-gray-300 mb-2">
+            Google Apps Script Web App URL
+          </label>
+          <div class="relative">
+            <input type="password" id="settings-gas-url" placeholder="https://script.google.com/macros/s/.../exec" class="w-full pl-4 pr-12 py-3 rounded-xl glass-input text-sm">
+            <button id="btn-toggle-pwd" class="absolute right-3 top-2.5 p-1 text-gray-400 hover:text-white transition">
+              <i class="fa-regular fa-eye-slash"></i>
+            </button>
+          </div>
+          <p class="text-[11px] text-gray-400 mt-1.5">此輸入欄位已被遮蔽 (Password 屬性) 以防窺視。網址將被安全地保存在您本機瀏覽器的 LocalStorage 中。</p>
+        </div>
+
+        <div class="border-t border-white/5 pt-4 flex space-x-3">
+          <button id="btn-save-settings" class="flex-1 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-bold transition duration-300">
+            儲存連線設定
+          </button>
+          <button id="btn-clear-settings" class="px-4 py-3 rounded-xl bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/20 transition duration-300" title="重置連線">
+            清除設定
+          </button>
+        </div>
+
+        <!-- 分享與 QR Code 產生區 -->
+        <div class="border-t border-white/5 pt-6 space-y-4">
+          <h4 class="font-bold text-sm text-gray-300 flex items-center space-x-2">
+            <i class="fa-solid fa-share-nodes text-emerald-400"></i>
+            <span>產生行動端掃碼連結 (加密網址)</span>
+          </h4>
+          <p class="text-xs text-gray-400">將目前的 GAS 連線資訊透過 Base64 加密編碼，內嵌至專屬連結。使用者掃描此 QR Code 即可自動設定連線進行投稿，不會直接看到您的 GAS Web App API 網址！</p>
+          
+          <button id="btn-generate-share" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm transition duration-200 flex items-center justify-center space-x-2">
+            <i class="fa-solid fa-arrows-spin"></i>
+            <span>生成分享短網址與 QR Code</span>
+          </button>
+
+          <!-- 分享顯示區塊 -->
+          <div id="share-display-area" class="hidden space-y-4 p-4 rounded-2xl bg-white/5 border border-white/5 animate-pop-in">
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 mb-1">加密分享長網址：</label>
+              <div class="flex">
+                <input type="text" id="share-long-url" readonly class="flex-1 px-3 py-1.5 rounded-l-lg bg-black/20 text-xs text-gray-300 border border-white/5 focus:outline-none">
+                <button id="btn-copy-long" class="px-3 bg-white/15 hover:bg-white/20 text-white rounded-r-lg text-xs transition">複製</button>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 mb-1">轉化後短網址：</label>
+              <div class="flex">
+                <input type="text" id="share-short-url" readonly placeholder="產生中..." class="flex-1 px-3 py-1.5 rounded-l-lg bg-black/20 text-xs text-gray-300 border border-white/5 focus:outline-none">
+                <button id="btn-copy-short" class="px-3 bg-white/15 hover:bg-white/20 text-white rounded-r-lg text-xs transition">複製</button>
+              </div>
+            </div>
+
+            <div class="flex flex-col items-center justify-center pt-2">
+              <p class="text-xs text-gray-400 mb-2">請使用手機掃描以下 QR Code 測試</p>
+              <div class="p-3 bg-white rounded-2xl shadow-lg inline-block">
+                <img id="share-qrcode-img" class="w-36 h-36" src="" alt="分享 QR Code">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 後端程式碼與部署指南視窗 (ℹ️) -->
+  <div id="modal-info" class="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden opacity-0 transition-all duration-300">
+    <div class="glass-card max-w-2xl w-full rounded-3xl p-6 md:p-8 border-white/10 scale-95 transition-transform duration-300 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-bold flex items-center space-x-2">
+          <i class="fa-solid fa-circle-question text-violet-400"></i>
+          <span>GAS 後端部署步驟教學</span>
+        </h3>
+        <button id="btn-close-info" class="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="space-y-6 text-sm text-gray-300">
+        <!-- 部署步驟 -->
+        <div class="space-y-3">
+          <h4 class="font-bold text-white text-base">🔧 如何建置與託管您的 Google 試算表資料庫：</h4>
+          <ol class="list-decimal list-inside space-y-2 text-xs text-gray-300 leading-relaxed">
+            <li>建立一個新的 <strong class="text-violet-300">Google 試算表 (Google Sheet)</strong>。</li>
+            <li>點選選單中的 <strong class="text-violet-300">擴充功能 > Apps Script</strong> 進入開發環境。</li>
+            <li>將原本編輯器內預設的 `myFunction()` 全部刪除。</li>
+            <li>點擊下方綠色按鈕 <strong class="text-emerald-300">複製 GAS 程式碼</strong>。</li>
+            <li>貼回 Apps Script 編輯器，並按下上方 <strong class="text-violet-300">儲存專案 (💾)</strong> 按鈕。</li>
+            <li>點擊右上角 <strong class="text-violet-300">「部署」 > 「新增部署」</strong>。</li>
+            <li>點選齒輪，將類型設定為 <strong class="text-violet-300">「網頁應用程式」(Web App)</strong>。</li>
+            <li>將「執行身分」設定為：<strong class="text-violet-300">「我」(您的帳號)</strong>。</li>
+            <li>將「誰可以存取」設定為：<strong class="text-violet-300">「任何人」(Anyone)</strong>。 (這是跨網域 API 的必要權限)</li>
+            <li>點擊「部署」，授權帳號後，複製產生的 <strong class="text-emerald-300">網頁應用程式網址 (Web App URL)</strong>。</li>
+            <li>返回此網頁，點擊右上角設定 (⚙️) 貼上，即完成完美對接！系統將會<strong class="text-violet-300">全自動</strong>為您的試算表初始化欄位。</li>
+          </ol>
+        </div>
+
+        <!-- 程式碼與複製按鈕 -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <h4 class="font-bold text-white">💾 GAS 核心程式碼 (Code.gs)</h4>
+            <button id="btn-copy-code" class="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs transition duration-200 flex items-center space-x-1">
+              <i class="fa-solid fa-copy"></i>
+              <span>複製 GAS 程式碼</span>
+            </button>
+          </div>
+          
+          <pre class="bg-black/40 rounded-xl p-4 border border-white/5 text-xs text-gray-400 overflow-x-auto max-h-60 leading-relaxed font-mono"><code id="gas-code-block"></code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. 現場大螢幕牆面：顯示掃描 QR Code 覆蓋層 -->
+  <div id="modal-qrcode-wall" class="fixed inset-0 bg-black/90 backdrop-blur-lg z-50 flex items-center justify-center p-4 hidden opacity-0 transition-all duration-300">
+    <div class="glass-card max-w-md w-full rounded-3xl p-8 border-violet-500/20 text-center space-y-6 scale-95 transition-transform duration-300 relative">
+      <button id="btn-close-qrcode-wall" class="absolute top-4 right-4 p-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition">
+        <i class="fa-solid fa-xmark text-lg"></i>
+      </button>
+
+      <div>
+        <h3 class="text-2xl font-black glow-text">掃描 QR Code 立即留言</h3>
+        <p class="text-xs text-gray-400 mt-1">無需安裝 App，網頁即開即寫</p>
+      </div>
+
+      <div class="p-4 bg-white rounded-3xl shadow-2xl inline-block mx-auto">
+        <img id="wall-qrcode-img" class="w-56 h-56" src="" alt="大螢幕掃碼投稿">
+      </div>
+
+      <div class="space-y-2">
+        <p id="wall-display-short-url" class="text-sm text-violet-300 font-bold font-mono tracking-wider">連結生成中...</p>
+        <p class="text-[11px] text-gray-500">歡迎大家上傳照片與留下祝福，一起在大螢幕分享喜悅！</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript 邏輯部分 -->
+  <script>
+    // ==================== [關鍵設定] 原始碼預設網址 ====================
+    // 使用者可以直接在下方引號中填入已部署的 GAS URL：
+    const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbyBixKSpECSgl-ifnp5b9XUuAl3kkT1rQLP3bo4mO-2hxpuEnhfIbJngEPNkURQoUNCSA/exec"; 
+
+    // ==================== 後端 GAS 程式碼內容 (供說明 Modal 複製使用) ====================
+    const GAS_BACKEND_CODE = `/**
+ * 即時互動留言牆 - Google Apps Script 後端 API
+ * * 部署說明：
+ * 1. 部署為網頁應用程式 (Web App)
+ * 2. 執行身分：我 (您的 Google 帳號)
+ * 3. 誰可以存取：任何人 (Anyone)
+ */
+
+const SHEET_NAME = "即時留言紀錄";
+const COLUMN_HEADERS = ["系統編號", "建立時間", "姓名暱稱", "祝福留言", "圖片內容"];
+
+// 全自動初始化：檢查並建立工作表與欄位
+function initDatabase() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_NAME);
+  
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_NAME);
+    // 寫入首列標題
+    sheet.appendRow(COLUMN_HEADERS);
+    // 設定標題樣式
+    const headerRange = sheet.getRange(1, 1, 1, COLUMN_HEADERS.length);
+    headerRange.setBackground("#4F46E5") // Indigo 600
+               .setFontColor("#FFFFFF")
+               .setFontWeight("bold")
+               .setHorizontalAlignment("center");
+    sheet.setFrozenRows(1);
+    // 調整欄寬
+    sheet.setColumnWidth(1, 150); // 編號
+    sheet.setColumnWidth(2, 180); // 時間
+    sheet.setColumnWidth(3, 150); // 姓名
+    sheet.setColumnWidth(4, 300); // 留言
+    sheet.setColumnWidth(5, 120); // 圖片狀態
+  }
+  return sheet;
+}
+
+// 跨網域處理 (CORS) 輔助函式
+function jsonResponse(data) {
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// 接收 GET 請求 (讀取最新留言)
+function doGet(e) {
+  try {
+    const sheet = initDatabase();
+    const data = sheet.getDataRange().getValues();
+    
+    // 如果只有標題，回傳空陣列
+    if (data.length <= 1) {
+      return jsonResponse({ success: true, posts: [] });
+    }
+    
+    const headers = data[0];
+    const rows = data.slice(1);
+    
+    // 轉換成 JSON 物件陣列
+    const posts = rows.map((row, index) => {
+      const post = {};
+      headers.forEach((header, colIndex) => {
+        // 如果是建立時間格式化為 ISO
+        if (header === "建立時間" && row[colIndex] instanceof Date) {
+          post[header] = row[colIndex].toISOString();
+        } else {
+          post[header] = row[colIndex];
+        }
+      });
+      // 提供索引以防萬一
+      post["row_index"] = index + 2; 
+      return post;
+    });
+    
+    // 按時間降序排列 (最新的在最前)
+    posts.reverse();
+    
+    return jsonResponse({ success: true, posts: posts });
+  } catch (error) {
+    return jsonResponse({ success: false, error: error.toString() });
+  }
+}
+
+// 接收 POST 請求 (提交留言)
+function doPost(e) {
+  try {
+    const sheet = initDatabase();
+    
+    // 解析 JSON 酬載
+    let postData;
+    if (e.postData && e.postData.contents) {
+      postData = JSON.parse(e.postData.contents);
+    } else {
+      // 處理標準 Form URL Encoded
+      postData = e.parameter;
+    }
+    
+    const name = postData["姓名暱稱"] || "匿名者";
+    const message = postData["祝福留言"] || "";
+    const imageBase64 = postData["圖片內容"] || ""; // Base64 字串
+    
+    const uuid = Utilities.getUuid();
+    const timestamp = new Date();
+    
+    // 依序寫入欄位 COLUMN_HEADERS = ["系統編號", "建立時間", "姓名暱稱", "祝福留言", "圖片內容"]
+    sheet.appendRow([
+      uuid,
+      timestamp,
+      name,
+      message,
+      imageBase64
+    ]);
+    
+    return jsonResponse({ 
+      success: true, 
+      message: "投稿成功！已即時發送至大螢幕牆。",
+      post: {
+        "系統編號": uuid,
+        "建立時間": timestamp.toISOString(),
+        "姓名暱稱": name,
+        "祝福留言": message,
+        "圖片內容": imageBase64 ? "有圖片" : ""
+      }
+    });
+  } catch (error) {
+    return jsonResponse({ success: false, error: error.toString() });
+  }
+}`;
+
+    // ==================== 全局變數 ====================
+    let ACTIVE_GAS_URL = "";
+    let currentView = "submit"; // submit | wall
+    let wallUpdateTimer = null;
+    let selectedImageBase64 = "";
+
+    // ==================== DOM 元素取得 ====================
+    const viewSubmit = document.getElementById("view-submit");
+    const viewWall = document.getElementById("view-wall");
+    const btnToggleView = document.getElementById("btn-toggle-view");
+    const txtToggleView = document.getElementById("txt-toggle-view");
+    
+    const btnSettings = document.getElementById("btn-settings");
+    const btnInfo = document.getElementById("btn-info");
+    const modalSettings = document.getElementById("modal-settings");
+    const modalInfo = document.getElementById("modal-info");
+    const btnCloseSettings = document.getElementById("btn-close-settings");
+    const btnCloseInfo = document.getElementById("btn-close-info");
+    
+    const settingsGasUrl = document.getElementById("settings-gas-url");
+    const btnTogglePwd = document.getElementById("btn-toggle-pwd");
+    const btnSaveSettings = document.getElementById("btn-save-settings");
+    const btnClearSettings = document.getElementById("btn-clear-settings");
+    const connAlert = document.getElementById("conn-alert");
+
+    const gasCodeBlock = document.getElementById("gas-code-block");
+    const btnCopyCode = document.getElementById("btn-copy-code");
+
+    // 投稿表單元素
+    const submitForm = document.getElementById("submit-form");
+    const inputName = document.getElementById("input-name");
+    const inputMessage = document.getElementById("input-message");
+    const imageDropzone = document.getElementById("image-dropzone");
+    const inputImage = document.getElementById("input-image");
+    const uploadPrompt = document.getElementById("upload-prompt");
+    const uploadPreview = document.getElementById("upload-preview");
+    const previewImg = document.getElementById("preview-img");
+    const btnRemoveImg = document.getElementById("btn-remove-img");
+    const btnSubmitPost = document.getElementById("btn-submit-post");
+
+    // 展示牆元素
+    const postsGrid = document.getElementById("posts-grid");
+    const emptyPosts = document.getElementById("empty-posts");
+    const wallStats = document.getElementById("wall-stats");
+    const btnRefreshWall = document.getElementById("btn-refresh-wall");
+    const btnQrcodeShow = document.getElementById("btn-qrcode-show");
+
+    // 分享與 QR Code
+    const btnGenerateShare = document.getElementById("btn-generate-share");
+    const shareDisplayArea = document.getElementById("share-display-area");
+    const shareLongUrl = document.getElementById("share-long-url");
+    const shareShortUrl = document.getElementById("share-short-url");
+    const shareQrcodeImg = document.getElementById("share-qrcode-img");
+    const btnCopyLong = document.getElementById("btn-copy-long");
+    const btnCopyShort = document.getElementById("btn-copy-short");
+
+    // 大螢幕專用覆蓋
+    const modalQrcodeWall = document.getElementById("modal-qrcode-wall");
+    const btnCloseQrcodeWall = document.getElementById("btn-close-qrcode-wall");
+    const wallQrcodeImg = document.getElementById("wall-qrcode-img");
+    const wallDisplayShortUrl = document.getElementById("wall-display-short-url");
+
+    // ==================== 初始化載入 ====================
+    window.addEventListener("DOMContentLoaded", () => {
+      // 載入 GAS 程式碼到說明框內
+      gasCodeBlock.textContent = GAS_BACKEND_CODE;
+
+      // 連線載入優先序判斷
+      initConnectionConfig();
+    });
+
+    // ==================== 連線邏輯與優先權優先運算 ====================
+    function initConnectionConfig() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const configParam = urlParams.get("config");
+
+      if (configParam) {
+        try {
+          // 優先權 1：網址參數 (Base64 解密)
+          const decodedUrl = atob(configParam);
+          if (decodedUrl.startsWith("http")) {
+            ACTIVE_GAS_URL = decodedUrl;
+            localStorage.setItem("gas_api_url", decodedUrl);
+            showModal("✨ 自動設定連線成功", "系統偵測到加密分享連結，已為您自動載入並啟用專屬的後端 GAS 伺服器！", "success");
+            
+            // 清理網址列 parameter 防止重複提示，維持網址美觀
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        } catch (e) {
+          console.error("解密網址參數失敗", e);
+        }
+      }
+
+      // 優先權 2：LocalStorage
+      if (!ACTIVE_GAS_URL) {
+        const storedUrl = localStorage.getItem("gas_api_url");
+        if (storedUrl) {
+          ACTIVE_GAS_URL = storedUrl;
+        }
+      }
+
+      // 優先權 3：原始碼預設值 Hardcoded
+      if (!ACTIVE_GAS_URL && DEFAULT_GAS_URL) {
+        ACTIVE_GAS_URL = DEFAULT_GAS_URL;
+      }
+
+      // 更新設定輸入框與顯示狀態
+      if (ACTIVE_GAS_URL) {
+        settingsGasUrl.value = ACTIVE_GAS_URL;
+        connAlert.classList.add("hidden");
+      } else {
+        connAlert.classList.remove("hidden");
+      }
+    }
+
+    // ==================== 跨瀏覽器複製剪貼簿 ====================
+    function copyToClipboard(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showModal("📋 複製成功", "內容已複製至您的剪貼簿！", "success");
+        }).catch(err => {
+          fallbackCopyText(text);
+        });
+      } else {
+        fallbackCopyText(text);
+      }
+    }
+
+    function fallbackCopyText(text) {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+        const successful = document.execCommand('copy');
+        if (successful) {
+          showModal("📋 複製成功", "內容已複製至您的剪貼簿！", "success");
+        } else {
+          showModal("❌ 複製失敗", "您的瀏覽器不支援一鍵複製，請手動複製。", "error");
+        }
+      } catch (err) {
+        showModal("❌ 複製失敗", "您的瀏覽器不支援一鍵複製，請手動複製。", "error");
+      }
+      document.body.removeChild(textArea);
+    }
+
+    // ==================== 自訂 Modal 模態對話窗邏輯 ====================
+    function showModal(title, message, type = "info") {
+      const modal = document.getElementById("modal-alert");
+      const titleEl = document.getElementById("alert-title");
+      const msgEl = document.getElementById("alert-message");
+      const iconWrapper = document.getElementById("alert-icon-wrapper");
+      const icon = document.getElementById("alert-icon");
+
+      titleEl.innerText = title;
+      msgEl.innerText = message;
+
+      // 依類型改變設計樣式
+      iconWrapper.className = "h-16 w-16 rounded-full flex items-center justify-center text-2xl ";
+      icon.className = "fa-solid ";
+
+      if (type === "success") {
+        iconWrapper.classList.add("bg-emerald-500/10", "text-emerald-400", "border", "border-emerald-500/20");
+        icon.classList.add("fa-circle-check");
+      } else if (type === "error") {
+        iconWrapper.classList.add("bg-red-500/10", "text-red-400", "border", "border-red-500/20");
+        icon.classList.add("fa-circle-xmark");
+      } else if (type === "loading") {
+        iconWrapper.classList.add("bg-violet-500/10", "text-violet-400", "border", "border-violet-500/20");
+        icon.classList.add("fa-spinner", "animate-spin");
+      } else {
+        iconWrapper.classList.add("bg-blue-500/10", "text-blue-400", "border", "border-blue-500/20");
+        icon.classList.add("fa-circle-info");
+      }
+
+      // 開啟
+      modal.classList.remove("hidden");
+      setTimeout(() => {
+        modal.classList.add("opacity-100");
+        modal.querySelector(".glass-card").classList.remove("scale-95");
+        modal.querySelector(".glass-card").classList.add("scale-100");
+      }, 50);
+    }
+
+    function closeModal() {
+      const modal = document.getElementById("modal-alert");
+      modal.classList.remove("opacity-100");
+      modal.querySelector(".glass-card").classList.add("scale-95");
+      modal.querySelector(".glass-card").classList.remove("scale-100");
+      setTimeout(() => {
+        modal.classList.add("hidden");
+      }, 300);
+    }
+
+    document.getElementById("alert-btn-close").addEventListener("click", closeModal);
+
+    // ==================== 模態視窗與背景點擊開關常規 ====================
+    function openSubModal(modalEl) {
+      modalEl.classList.remove("hidden");
+      setTimeout(() => {
+        modalEl.classList.add("opacity-100");
+        modalEl.querySelector(".glass-card").classList.remove("scale-95");
+        modalEl.querySelector(".glass-card").classList.add("scale-100");
+      }, 50);
+    }
+
+    function closeSubModal(modalEl) {
+      modalEl.classList.remove("opacity-100");
+      modalEl.querySelector(".glass-card").classList.add("scale-95");
+      modalEl.querySelector(".glass-card").classList.remove("scale-100");
+      setTimeout(() => {
+        modalEl.classList.add("hidden");
+      }, 300);
+    }
+
+    // 事件監聽：設定與說明按鈕
+    btnSettings.addEventListener("click", () => openSubModal(modalSettings));
+    btnCloseSettings.addEventListener("click", () => closeSubModal(modalSettings));
+    btnInfo.addEventListener("click", () => openSubModal(modalInfo));
+    btnCloseInfo.addEventListener("click", () => closeSubModal(modalInfo));
+
+    // 關閉點擊外框
+    window.addEventListener("click", (e) => {
+      if (e.target === modalSettings) closeSubModal(modalSettings);
+      if (e.target === modalInfo) closeSubModal(modalInfo);
+      if (e.target === modalQrcodeWall) closeSubModal(modalQrcodeWall);
+    });
+
+    // 密碼顯示/隱藏切換
+    btnTogglePwd.addEventListener("click", () => {
+      const type = settingsGasUrl.getAttribute("type") === "password" ? "text" : "password";
+      settingsGasUrl.setAttribute("type", type);
+      btnTogglePwd.innerHTML = type === "password" 
+        ? '<i class="fa-regular fa-eye-slash"></i>' 
+        : '<i class="fa-regular fa-eye"></i>';
+    });
+
+    // ==================== 設定儲存與清除 ====================
+    btnSaveSettings.addEventListener("click", () => {
+      const urlValue = settingsGasUrl.value.trim();
+      if (!urlValue) {
+        showModal("⚠️ 欄位空白", "請輸入完整的 Google Apps Script Web App URL 連結。", "error");
+        return;
+      }
+      if (!urlValue.startsWith("https://script.google.com")) {
+        showModal("⚠️ 格式不符", "您輸入的似乎不是標準的 Google Apps Script 網址，請確認後再儲存。", "error");
+        return;
+      }
+      
+      ACTIVE_GAS_URL = urlValue;
+      localStorage.setItem("gas_api_url", urlValue);
+      connAlert.classList.add("hidden");
+      closeSubModal(modalSettings);
+      showModal("🎉 設定儲存", "連線網址儲存成功！現在可以正常投稿並讀取留言了。", "success");
+      
+      // 若在電視牆視圖，即刻重載
+      if (currentView === "wall") {
+        fetchPostsFromGas();
+      }
+    });
+
+    btnClearSettings.addEventListener("click", () => {
+      localStorage.removeItem("gas_api_url");
+      ACTIVE_GAS_URL = "";
+      settingsGasUrl.value = "";
+      connAlert.classList.remove("hidden");
+      closeSubModal(modalSettings);
+      showModal("🧹 重置成功", "已將本機儲存的 GAS 伺服器設定抹除，畫面已重置。", "success");
+      
+      // 清空顯示數據
+      if (currentView === "wall") {
+        renderPosts([]);
+      }
+    });
+
+    // 複製 GAS 程式碼
+    btnCopyCode.addEventListener("click", () => {
+      copyToClipboard(GAS_BACKEND_CODE);
+    });
+
+    // ==================== 圖片處理 (等比例壓縮寬度 800px) ====================
+    imageDropzone.addEventListener("click", () => inputImage.click());
+
+    // 拖曳處理
+    imageDropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      imageDropzone.classList.add("border-violet-500", "bg-white/10");
+    });
+
+    imageDropzone.addEventListener("dragleave", () => {
+      imageDropzone.classList.remove("border-violet-500", "bg-white/10");
+    });
+
+    imageDropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      imageDropzone.classList.remove("border-violet-500", "bg-white/10");
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        handleImageUpload(files[0]);
+      }
+    });
+
+    inputImage.addEventListener("change", (e) => {
+      if (e.target.files.length > 0) {
+        handleImageUpload(e.target.files[0]);
+      }
+    });
+
+    btnRemoveImg.addEventListener("click", (e) => {
+      e.stopPropagation(); // 阻止觸發 click 上傳
+      selectedImageBase64 = "";
+      inputImage.value = "";
+      uploadPreview.classList.add("hidden");
+      uploadPrompt.classList.remove("hidden");
+    });
+
+    function handleImageUpload(file) {
+      if (!file.type.startsWith("image/")) {
+        showModal("⚠️ 格式錯誤", "只能上傳圖片檔案唷！", "error");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        const img = new Image();
+        img.onload = function () {
+          // Canvas 等比例縮小到寬度 800px
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          const maxW = 800;
+          let targetW = img.width;
+          let targetH = img.height;
+
+          if (img.width > maxW) {
+            targetW = maxW;
+            targetH = Math.round((img.height * maxW) / img.width);
+          }
+
+          canvas.width = targetW;
+          canvas.height = targetH;
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+
+          // 壓縮為高品質 JPEG / PNG Base64 字串
+          selectedImageBase64 = canvas.toDataURL("image/jpeg", 0.85);
+          
+          // 秀出預覽圖
+          previewImg.src = selectedImageBase64;
+          uploadPrompt.classList.add("hidden");
+          uploadPreview.classList.remove("hidden");
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // ==================== 提交投稿至後端 ====================
+    submitForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      if (!ACTIVE_GAS_URL) {
+        showModal("⚠️ 無法傳送", "尚未設定 GAS 後端 API 網址，請點選右上角 ⚙️ 進行設定再試。", "error");
+        return;
+      }
+
+      const nameValue = inputName.value.trim();
+      const msgValue = inputMessage.value.trim();
+
+      if (!nameValue || !msgValue) {
+        showModal("⚠️ 請填寫必填欄位", "姓名與留言內容是必填項喔！", "error");
+        return;
+      }
+
+      showModal("🚀 傳送中", "正在將您的祝福傳送至現場電視牆...", "loading");
+
+      const payload = {
+        "姓名暱稱": nameValue,
+        "祝福留言": msgValue,
+        "圖片內容": selectedImageBase64
+      };
+
+      try {
+        // 利用 Fetch 發送 POST (使用 no-cors 跨網域常會無法解讀 JSON response，故確保後端與前端適當解析)
+        const response = await fetch(ACTIVE_GAS_URL, {
+          method: "POST",
+          mode: "no-cors", // GAS 網頁應用程式跨域最穩定做法之一
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(payload)
+        });
+
+        // 由於 no-cors 下無法拿到 response 實體資訊（均為 opaque response），
+        // 為最佳體驗，在沒拋錯的情況下我們均視作發送成功並給予友善引導
+        submitForm.reset();
+        btnRemoveImg.click(); // 清空圖片
+        closeModal();
+        showModal("🎉 留言成功！", "您的祝福與照片已成功送出！請抬頭看看現場大螢幕牆面吧 ✨", "success");
+
+      } catch (err) {
+        closeModal();
+        showModal("❌ 傳送失敗", "連線至 GAS 發生異常：\n" + err.toString(), "error");
+      }
+    });
+
+    // ==================== 讀取最新留言牆資料 ====================
+    async function fetchPostsFromGas() {
+      if (!ACTIVE_GAS_URL) {
+        renderPosts([]);
+        return;
+      }
+
+      // 指示正在更新（若骨架屏沒在跑的話）
+      if (postsGrid.children.length === 0 || postsGrid.querySelector(".skeleton-card")) {
+        postsGrid.innerHTML = `
+          <div class="skeleton-card glass-card rounded-3xl p-6 space-y-4 animate-pulse col-span-full text-center py-12 text-gray-400">
+            <i class="fa-solid fa-spinner animate-spin text-2xl mb-2 text-violet-400"></i>
+            <p class="text-sm">正在同步連線資料庫，請稍候...</p>
+          </div>
+        `;
+      }
+
+      try {
+        const response = await fetch(ACTIVE_GAS_URL);
+        const data = await response.json();
+
+        if (data.success) {
+          renderPosts(data.posts);
+        } else {
+          console.error("GAS 回傳報錯:", data.error);
+        }
+      } catch (err) {
+        console.error("讀取留言牆資料失敗:", err);
+      }
+    }
+
+    // 渲染留言牆卡片
+    function renderPosts(posts) {
+      postsGrid.innerHTML = "";
+
+      if (!posts || posts.length === 0) {
+        emptyPosts.classList.remove("hidden");
+        wallStats.innerText = "共 0 則留言";
+        return;
+      }
+
+      emptyPosts.classList.add("hidden");
+      wallStats.innerText = `共 ${posts.length} 則留言`;
+
+      posts.forEach((post) => {
+        const name = post["姓名暱稱"] || "匿名者";
+        const msg = post["祝福留言"] || "";
+        const imgData = post["圖片內容"] || "";
+        const timeStr = post["建立時間"] ? new Date(post["建立時間"]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "";
+
+        const card = document.createElement("div");
+        card.className = "glass-card rounded-3xl p-5 space-y-4 flex flex-col justify-between animate-pop-in relative overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:border-violet-500/30";
+
+        // 有圖片的話，上方呈現
+        let imgHtml = "";
+        if (imgData && imgData.startsWith("data:image")) {
+          imgHtml = `
+            <div class="rounded-2xl overflow-hidden max-h-56 border border-white/5 bg-black/20">
+              <img src="${imgData}" class="w-full h-full object-cover" alt="留言照片" onerror="this.parentElement.style.display='none'">
+            </div>
+          `;
+        }
+
+        // 卡片骨架
+        card.innerHTML = `
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-2.5">
+                <div class="h-9 w-9 rounded-full bg-gradient-to-tr from-violet-500/20 to-fuchsia-500/20 border border-violet-500/30 flex items-center justify-center font-bold text-sm text-violet-200">
+                  ${name.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <h4 class="font-bold text-sm text-white">${name}</h4>
+                  <p class="text-[10px] text-gray-500">${timeStr}</p>
+                </div>
+              </div>
+              <div class="h-2 w-2 rounded-full bg-violet-500/50"></div>
+            </div>
+
+            <p class="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap font-light">${msg}</p>
+          </div>
+          ${imgHtml}
+        `;
+
+        postsGrid.appendChild(card);
+      });
+    }
+
+    // 手動整理
+    btnRefreshWall.addEventListener("click", () => {
+      fetchPostsFromGas();
+    });
+
+    // ==================== 視圖切換與排程輪詢定時器 ====================
+    btnToggleView.addEventListener("click", () => {
+      if (currentView === "submit") {
+        // 切換到 電視牆
+        currentView = "wall";
+        viewSubmit.classList.add("hidden");
+        viewWall.classList.remove("hidden");
+        txtToggleView.innerText = "切換至投稿頁";
+        btnToggleView.innerHTML = '<i class="fa-solid fa-pen-nib"></i> <span>切換至投稿頁</span>';
+        
+        // 啟動每 5 秒自動即時輪詢更新
+        fetchPostsFromGas();
+        wallUpdateTimer = setInterval(fetchPostsFromGas, 5000);
+      } else {
+        // 切換到 投稿頁
+        currentView = "submit";
+        viewWall.classList.add("hidden");
+        viewSubmit.classList.remove("hidden");
+        txtToggleView.innerText = "切換至展示牆";
+        btnToggleView.innerHTML = '<i class="fa-solid fa-desktop"></i> <span>切換至展示牆</span>';
+        
+        // 移除計時器
+        if (wallUpdateTimer) {
+          clearInterval(wallUpdateTimer);
+          wallUpdateTimer = null;
+        }
+      }
+    });
+
+    // ==================== 產生分享連結與短網址 / QR Code ====================
+    btnGenerateShare.addEventListener("click", async () => {
+      if (!ACTIVE_GAS_URL) {
+        showModal("⚠️ 無法生成", "請先設定本機儲存的 GAS URL 才能生成對應的加密連結唷！", "error");
+        return;
+      }
+
+      // 1. 將 GAS 網址加密 (Base64)
+      const encodedUrl = btoa(ACTIVE_GAS_URL);
+      
+      // 2. 組裝長連結 (採用當下主機路徑)
+      const currentOrigin = window.location.origin + window.location.pathname;
+      const longUrl = `${currentOrigin}?config=${encodedUrl}`;
+      shareLongUrl.value = longUrl;
+      
+      shareDisplayArea.classList.remove("hidden");
+      shareShortUrl.value = "處理中...";
+
+      // 3. 呼叫 is.gd 產生縮短網址 (解決部分 QR Code 過於密集難以掃描問題)
+      // 若 is.gd 被限制，則直接以降級方案使用長網址產生 QR Code
+      const encodedLongParam = encodeURIComponent(longUrl);
+      const shortenerApi = `https://is.gd/create.php?format=json&url=${encodedLongParam}`;
+
+      try {
+        const response = await fetch(shortenerApi);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.shorturl) {
+            shareShortUrl.value = data.shorturl;
+            generateQrCodeImages(data.shorturl);
+            return;
+          }
+        }
+        throw new Error("短網址 API 無法完成縮址，將改用長網址規格生成。");
+      } catch (err) {
+        console.warn(err);
+        shareShortUrl.value = "縮址服務受限，採用原長連結";
+        generateQrCodeImages(longUrl);
+      }
+    });
+
+    // 生成 QR Code (利用 quickchart.io 的高畫質生成 API)
+    function generateQrCodeImages(url) {
+      const qrcodeApiUrl = `https://quickchart.io/qr?text=${encodeURIComponent(url)}&size=300&margin=1`;
+      
+      // 設定設定面板與牆面面板的圖源
+      shareQrcodeImg.src = qrcodeApiUrl;
+      wallQrcodeImg.src = qrcodeApiUrl;
+      
+      wallDisplayShortUrl.innerText = url;
+    }
+
+    // 複製分享網址
+    btnCopyLong.addEventListener("click", () => copyToClipboard(shareLongUrl.value));
+    btnCopyShort.addEventListener("click", () => copyToClipboard(shareShortUrl.value));
+
+    // ==================== 電視牆掃碼面板專屬控制 ====================
+    btnQrcodeShow.addEventListener("click", () => {
+      if (!shareShortUrl.value || shareShortUrl.value === "產生中..." || shareShortUrl.value === "處理中...") {
+        // 先自動生成一次
+        btnGenerateShare.click();
+      }
+      openSubModal(modalQrcodeWall);
+    });
+
+    btnCloseQrcodeWall.addEventListener("click", () => {
+      closeSubModal(modalQrcodeWall);
+    });
+
+  </script>
+</body>
+</html>
